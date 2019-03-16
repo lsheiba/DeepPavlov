@@ -1,18 +1,17 @@
-"""
-Copyright 2017 Neural Networks and Deep Learning lab, MIPT
+# Copyright 2017 Neural Networks and Deep Learning lab, MIPT
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
 import json
 from fuzzywuzzy import process
 from overrides import overrides
@@ -28,9 +27,11 @@ log = get_logger(__name__)
 
 @register('dstc_slotfilling')
 class DstcSlotFillingNetwork(Component, Serializable):
-    def __init__(self, threshold=0.8, **kwargs):
+    """Slot filling for DSTC2 task with neural network"""
+    def __init__(self, threshold: float = 0.8, **kwargs):
         super().__init__(**kwargs)
         self.threshold = threshold
+        self._slot_vals = None
         # Check existance of file with slots, slot values, and corrupted (misspelled) slot values
         self.load()
 
@@ -105,16 +106,21 @@ class DstcSlotFillingNetwork(Component, Serializable):
         return entities, slots
 
     def _download_slot_vals(self):
-        url = 'http://lnsigo.mipt.ru/export/datasets/dstc_slot_vals.json'
+        url = 'http://files.deeppavlov.ai/datasets/dstc_slot_vals.json'
         download(self.save_path, url)
 
     def save(self, *args, **kwargs):
-        with open(self.save_path, 'w') as f:
+        with open(self.save_path, 'w', encoding='utf8') as f:
             json.dump(self._slot_vals, f)
+
+    def serialize(self):
+        return json.dumps(self._slot_vals)
 
     def load(self, *args, **kwargs):
         if not self.load_path.exists():
             self._download_slot_vals()
-        with open(self.load_path) as f:
+        with open(self.load_path, encoding='utf8') as f:
             self._slot_vals = json.load(f)
 
+    def deserialize(self, data):
+        self._slot_vals = json.loads(data)

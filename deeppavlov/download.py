@@ -1,109 +1,119 @@
-"""
-Copyright 2017 Neural Networks and Deep Learning lab, MIPT
+# Copyright 2017 Neural Networks and Deep Learning lab, MIPT
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
-import argparse
-from pathlib import Path
+import shutil
 import sys
+from argparse import ArgumentParser, Namespace
+from collections import defaultdict
+from pathlib import Path
+from typing import Union, Optional, Dict, Iterable, Set, Tuple, List
 
-root_path = (Path(__file__) / ".." / "..").resolve()
-sys.path.append(str(root_path))
+import requests
 
-from deeppavlov.core.common.file import read_json
-from deeppavlov.core.data.utils import download, download_decompress, get_all_elems_from_json
+import deeppavlov
+from deeppavlov.core.commands.utils import expand_path, parse_config
+from deeppavlov.core.data.utils import download, download_decompress, get_all_elems_from_json, file_md5
 from deeppavlov.core.common.log import get_logger
-
 
 log = get_logger(__name__)
 
-parser = argparse.ArgumentParser()
+parser = ArgumentParser()
 
 parser.add_argument('--config', '-c', help="path to a pipeline json config", type=str,
                     default=None)
 parser.add_argument('-all', action='store_true',
                     help="Download everything. Warning! There should be at least 10 GB space"
                          " available on disk.")
-parser.add_argument('-test', action='store_true',
-                    help="Turn test mode")
 
 
-def get_config_downloads(config_path, config_downloads=None):
-    config = read_json(config_path)
+def get_config_downloads(config: Union[str, Path, dict]) -> Set[Tuple[str, Path]]:
+    config = parse_config(config)
 
-    if config_downloads is None:
-        config_downloads = {}
-
+    downloads = set()
     if 'metadata' in config and 'download' in config['metadata']:
         for resource in config['metadata']['download']:
             if isinstance(resource, str):
-                url = resource
-                sub_dir = ''
-            elif isinstance(resource, dict):
-                url = resource['url']
-                sub_dir = resource['subdir'] if 'subdir' in resource else ''
+                resource = {
+                    'url': resource
+                }
 
-            if url in config_downloads:
-                config_downloads[url]['subdir'] = list(set(config_downloads[url]['subdir'] +
-                                                           [sub_dir]))
-            else:
-                config_downloads[url] = {'url': url, 'subdir': [sub_dir]}
+            url = resource['url']
+            dest = expand_path(resource.get('subdir', ''))
 
-    config_references = get_all_elems_from_json(config, 'config_path')
-    config_references = [root_path.joinpath(config_ref.split('../', 1)[1]) for config_ref in config_references]
+            downloads.add((url, dest))
 
-    for config_ref in config_references:
-        config_downloads = get_config_downloads(config_ref, config_downloads)
+    config_references = [expand_path(config_ref) for config_ref in get_all_elems_from_json(config, 'config_path')]
 
-    return config_downloads
+    downloads |= {(url, dest) for config in config_references for url, dest in get_config_downloads(config)}
+
+    return downloads
 
 
-def get_configs_downloads(config_path=None, test=None):
-    all_downloads = {}
+def get_configs_downloads(config: Optional[Union[str, Path, dict]]=None) -> Dict[str, Set[Path]]:
+    all_downloads = defaultdict(set)
 
-    if test:
-        configs_path = root_path / 'tests' / 'deeppavlov' / 'configs'
+    if config:
+        configs = [config]
     else:
-        configs_path = root_path / 'deeppavlov' / 'configs'
+        configs = list(Path(deeppavlov.__path__[0], 'configs').glob('**/*.json'))
 
-    if config_path:
-        configs = [config_path]
-    else:
-        configs = list(configs_path.glob('**/*.json'))
-
-    for config_path in configs:
-        config_downloads = get_config_downloads(config_path)
-        for url in config_downloads:
-            if url in all_downloads:
-                all_downloads[url]['subdir'] = list(set(all_downloads[url]['subdir'] +
-                                                        config_downloads[url]['subdir']))
-            else:
-                all_downloads[url] = config_downloads[url]
+    for config in configs:
+        for url, dest in get_config_downloads(config):
+            all_downloads[url].add(dest)
 
     return all_downloads
 
 
-def download_resource(resource, download_path):
-    url = resource['url']
-    sub_dirs = resource['subdir']
-    dest_paths = []
+def check_md5(url: str, dest_paths: List[Path]) -> bool:
+    r = requests.get(url + '.md5')
+    if r.status_code != 200:
+        return False
+    expected = {}
+    for line in r.text.splitlines():
+        _md5, fname = line.split(' ', maxsplit=1)
+        if fname[0] != '*':
+            if fname[0] == ' ':
+                log.warning(f'Hash generated in text mode for {fname}, comparison could be incorrect')
+            else:
+                log.error(f'Unknown hash content format in {url + ".md5"}')
+                return False
+        expected[fname[1:]] = _md5
 
-    for sub_dir in sub_dirs:
-        dest_path = download_path.joinpath(sub_dir)
-        dest_paths.append(dest_path)
+    done = None
+    not_done = []
+    for base_path in dest_paths:
+        if all(file_md5(base_path / p) == _md5 for p, _md5 in expected.items()):
+            done = base_path
+        else:
+            not_done.append(base_path)
 
-    if url.endswith(('.tar.gz', '.gz', '.zip')):
+    if done is None:
+        return False
+
+    for base_path in not_done:
+        log.info(f'Copying data from {done} to {base_path}')
+        for p in expected.keys():
+            shutil.copy(done/p, base_path/p)
+    return True
+
+
+def download_resource(url: str, dest_paths: Iterable[Path]) -> None:
+    dest_paths = list(dest_paths)
+
+    if check_md5(url, dest_paths):
+        log.info(f'Skipped {url} download because of matching hashes')
+    elif url.endswith(('.tar.gz', '.gz', '.zip')):
         download_path = dest_paths[0].parent
         download_decompress(url, download_path, dest_paths)
     else:
@@ -112,32 +122,28 @@ def download_resource(resource, download_path):
         download(dest_files, url)
 
 
-def download_resources(args):
-    download_path = root_path / 'download'
-
-    if args.test:
-        download_path = root_path / 'tests' / 'download'
-        test = True
-    else:
-        test = False
-
+def download_resources(args: Namespace) -> None:
     if not args.all and not args.config:
         log.error('You should provide either skill config path or -all flag')
         sys.exit(1)
     elif args.all:
-        downloads = get_configs_downloads(test=test)
+        downloads = get_configs_downloads()
     else:
         config_path = Path(args.config).resolve()
-        downloads = get_configs_downloads(config_path=config_path)
+        downloads = get_configs_downloads(config=config_path)
 
-    download_path.mkdir(exist_ok=True)
-
-    for url in downloads:
-        resource = downloads[url]
-        download_resource(resource, download_path)
+    for url, dest_paths in downloads.items():
+        download_resource(url, dest_paths)
 
 
-def deep_download(args=None):
+def deep_download(config: Union[str, Path, dict]) -> None:
+    downloads = get_configs_downloads(config)
+
+    for url, dest_paths in downloads.items():
+        download_resource(url, dest_paths)
+
+
+def main(args: Optional[List[str]]=None) -> None:
     args = parser.parse_args(args)
     log.info("Downloading...")
     download_resources(args)
@@ -145,4 +151,4 @@ def deep_download(args=None):
 
 
 if __name__ == "__main__":
-    deep_download()
+    main()

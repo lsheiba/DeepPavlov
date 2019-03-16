@@ -1,35 +1,38 @@
-"""
-Copyright 2017 Neural Networks and Deep Learning lab, MIPT
+# Copyright 2017 Neural Networks and Deep Learning lab, MIPT
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
-from pathlib import Path
 import json
+import logging
 import logging.config
 import sys
+from pathlib import Path
 
+from .paths import get_settings_path
 
 LOG_CONFIG_FILENAME = 'log_config.json'
 TRACEBACK_LOGGER_ERRORS = True
 
+root_path = Path(__file__).resolve().parents[3]
+
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
+
 
 def get_logger(logger_name):
     try:
-        config_dir = Path(__file__).resolve().parent
-        log_config_path = Path(config_dir, '..', '..', LOG_CONFIG_FILENAME).resolve()
+        log_config_path = get_settings_path() / LOG_CONFIG_FILENAME
 
-        with open(log_config_path) as log_config_json:
+        with log_config_path.open(encoding='utf8') as log_config_json:
             log_config = json.load(log_config_json)
 
         configured_loggers = [log_config.get('root', {})] + log_config.get('loggers', [])
