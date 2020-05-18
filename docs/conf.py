@@ -13,8 +13,8 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 
 import sphinx_rtd_theme
-import deeppavlov
 
+import deeppavlov
 
 # -- Project information -----------------------------------------------------
 
@@ -190,7 +190,9 @@ texinfo_documents = [
 
 # -- Extension configuration -------------------------------------------------
 
-autodoc_mock_imports = ['tensorflow', 'tensorflow_hub', 'fastText', 'nltk', 'gensim', 'kenlm', 'spacy', 'lxml', 'sortedcontainers', 'russian_tagsets']
+autodoc_mock_imports = ['aiml', 'bert_dp', 'fastText', 'fasttext', 'gensim', 'kenlm', 'librosa', 'lxml', 'nemo',
+                        'nemo_asr', 'nemo_tts', 'nltk', 'rasa', 'russian_tagsets', 'sacremoses', 'sortedcontainers',
+                        'spacy', 'tensorflow', 'tensorflow_hub', 'torch', 'transformers']
 
 extlinks = {
     'config': (f'https://github.com/deepmipt/DeepPavlov/blob/{release}/deeppavlov/configs/%s', None)

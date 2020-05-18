@@ -15,16 +15,17 @@ import json
 import pickle
 import sys
 from itertools import islice
+from logging import getLogger
 from pathlib import Path
 from typing import Optional, Union
 
 from deeppavlov.core.commands.utils import import_packages, parse_config
 from deeppavlov.core.common.chainer import Chainer
-from deeppavlov.core.common.log import get_logger
 from deeppavlov.core.common.params import from_params
+from deeppavlov.core.data.utils import jsonify_data
 from deeppavlov.download import deep_download
 
-log = get_logger(__name__)
+log = getLogger(__name__)
 
 
 def build_model(config: Union[str, Path, dict], mode: str = 'infer',
@@ -60,6 +61,9 @@ def build_model(config: Union[str, Path, dict], mode: str = 'infer',
 
         component = from_params(component_config, mode=mode, serialized=component_serialized)
 
+        if 'id' in component_config:
+            model._components_dict[component_config['id']] = component
+
         if 'in' in component_config:
             c_in = component_config['in']
             c_out = component_config['out']
@@ -77,7 +81,7 @@ def interact_model(config: Union[str, Path, dict]) -> None:
     while True:
         args = []
         for in_x in model.in_x:
-            args.append([input('{}::'.format(in_x))])
+            args.append((input('{}::'.format(in_x)),))
             # check for exit command
             if args[-1][0] in {'exit', 'stop', 'quit', 'q'}:
                 return
@@ -89,8 +93,12 @@ def interact_model(config: Union[str, Path, dict]) -> None:
         print('>>', *pred)
 
 
-def predict_on_stream(config: Union[str, Path, dict], batch_size: int = 1, file_path: Optional[str] = None) -> None:
+def predict_on_stream(config: Union[str, Path, dict],
+                      batch_size: Optional[int] = None,
+                      file_path: Optional[str] = None) -> None:
     """Make a prediction with the component described in corresponding configuration file."""
+
+    batch_size = batch_size or 1
     if file_path is None or file_path == '-':
         if sys.stdin.isatty():
             raise RuntimeError('To process data from terminal please use interact mode')
@@ -115,7 +123,7 @@ def predict_on_stream(config: Union[str, Path, dict], batch_size: int = 1, file_
         if len(model.out_params) == 1:
             res = [res]
         for res in zip(*res):
-            res = json.dumps(res, ensure_ascii=False)
+            res = json.dumps(jsonify_data(res), ensure_ascii=False)
             print(res, flush=True)
 
     if f is not sys.stdin:

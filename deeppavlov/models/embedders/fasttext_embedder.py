@@ -12,17 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from overrides import overrides
+from logging import getLogger
 from typing import Iterator
 
+import fasttext
+
 import numpy as np
-import fastText
+from overrides import overrides
 
 from deeppavlov.core.common.registry import register
-from deeppavlov.core.common.log import get_logger
 from deeppavlov.models.embedders.abstract_embedder import Embedder
 
-log = get_logger(__name__)
+log = getLogger(__name__)
 
 
 @register('fasttext')
@@ -50,7 +51,7 @@ class FasttextEmbedder(Embedder):
         Load fastText binary model from self.load_path
         """
         log.info(f"[loading fastText embeddings from `{self.load_path}`]")
-        self.model = fastText.load_model(str(self.load_path))
+        self.model = fasttext.load_model(str(self.load_path))
         self.dim = self.model.get_dimension()
 
     @overrides
